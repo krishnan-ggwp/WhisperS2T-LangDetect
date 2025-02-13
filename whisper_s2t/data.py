@@ -122,14 +122,15 @@ class WhisperDataset(torch.utils.data.Dataset):
 
 
 class WhisperDataLoader:
-    def __init__(self, device, tokenizer, speech_segmenter, 
+    def __init__(self, model, preprocessor, device, tokenizer, speech_segmenter, 
                  dta_padding=3.0, 
                  without_timestamps=True, 
                  max_speech_len=29.0, 
                  max_initial_prompt_len=223,
                  merge_chunks=True,
                  use_dynamic_time_axis=False):
-        
+        self.model = model
+        self.preprocessor = preprocessor
         self.device = device
         self.tokenizer = tokenizer
         self.speech_segmenter = speech_segmenter
@@ -140,6 +141,13 @@ class WhisperDataLoader:
         self.max_initial_prompt_len = max_initial_prompt_len
         self.use_dynamic_time_axis = use_dynamic_time_axis
         self.merge_chunks = merge_chunks
+
+    def get_top_lang(self, results):
+        # Parse language names to strip out markers
+        all_language_probs = [(token[2:-2], prob) for (token, prob) in results]
+        # Get top language token
+        language = all_language_probs[0]
+        return language
         
     def data_collate_fn(self, batch):
         if self.use_dynamic_time_axis:
@@ -152,11 +160,32 @@ class WhisperDataLoader:
 
         prompt_batch = []
         initial_prompt_max_len = max([len(_[2]) for _ in batch])
-        if initial_prompt_max_len:
-            for _ in batch: prompt_batch.append([self.tokenizer.sot_prev] + (initial_prompt_max_len-len(_[2]))*[self.tokenizer.silent_token] + _[2] + _[1])
-        else:
-            for _ in batch: prompt_batch.append(_[1])
 
+        # Generate prompts based on language
+        # Generate mels
+        mels, _ = self.preprocessor(signal_batch, seq_len)
+        # detect langs
+        lang_results = self.model.detect_language(mels.to(self.device))
+        # get top lang in each batch and create prompt batch
+        top_langs = []
+        for result in lang_results:
+            top_lang = self.get_top_lang(result)
+            top_langs.append(top_lang)
+
+        prompts = []
+        for idx, _ in enumerate(batch):
+            prompt = self.tokenizer.sot_sequence(task=_[1], lang=top_langs[idx])
+            if self.without_timestamps:
+                prompt.append(self.tokenizer.no_timestamps)
+            else:
+                prompt.append(self.tokenizer.timestamp_begin)
+            prompts.append(prompt)
+
+        if initial_prompt_max_len:         
+            for idx,_ in enumerate(batch): prompt_batch.append([self.tokenizer.sot_prev] + (initial_prompt_max_len-len(_[2]))*[self.tokenizer.silent_token] + _[2] + prompts[idx])
+        else:
+            for idx,_ in enumerate(batch): prompt_batch.append(prompts[idx])
+    
         if len(batch[0]) == 5:
             seg_metadata = [_[4] for _ in batch]
             return signal_batch, prompt_batch, seq_len, seg_metadata
@@ -170,13 +199,6 @@ class WhisperDataLoader:
             initial_prompt_tokens = self.tokenizer.encode(initial_prompt)[-self.max_initial_prompt_len:]
         else:
             initial_prompt_tokens = []
-
-        prompt = self.tokenizer.sot_sequence(task=task, lang=lang)
-        
-        if self.without_timestamps:
-            prompt.append(self.tokenizer.no_timestamps)
-        else:
-            prompt.append(self.tokenizer.timestamp_begin)
 
         segmented_audio_signal = []
 
@@ -196,12 +218,12 @@ class WhisperDataLoader:
                     'stitched_seg': stitched_seg,
                     'lang_code': lang
                 }
-                segmented_audio_signal.append((audio, prompt, initial_prompt_tokens, seq_len, seg_metadata))
+                segmented_audio_signal.append((audio, task, initial_prompt_tokens, seq_len, seg_metadata))
         else:
             for st, et in start_ends:
                 audio = audio_signal[int(st*sr):int(et*sr)]
                 seq_len = audio.shape[-1]
-                segmented_audio_signal.append((audio, prompt, initial_prompt_tokens, seq_len, {'file_id': file_id, 'start_time': st, 'end_time': et}))
+                segmented_audio_signal.append((audio, task, initial_prompt_tokens, seq_len, {'file_id': file_id, 'start_time': st, 'end_time': et}))
 
         return segmented_audio_signal
     
