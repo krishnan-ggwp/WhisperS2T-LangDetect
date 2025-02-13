@@ -146,7 +146,7 @@ class WhisperDataLoader:
         # Parse language names to strip out markers
         all_language_probs = [(token[2:-2], prob) for (token, prob) in results]
         # Get top language token
-        language = all_language_probs[0]
+        language, language_probability = all_language_probs[0]
         return language
         
     def data_collate_fn(self, batch):
