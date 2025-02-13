@@ -90,6 +90,8 @@ class WhisperModel(ABC):
 
         # Load Data Loader
         self.data_loader = WhisperDataLoader(
+            self,
+            self.preprocessor,
             self.device, self.tokenizer, self.speech_segmenter, 
             dta_padding=self.dta_padding,
             without_timestamps=self.without_timestamps, 
@@ -109,6 +111,11 @@ class WhisperModel(ABC):
     @abstractmethod
     def generate_segment_batched(self, features, prompts):
         pass
+
+    @abstractmethod
+    def detect_language(self, features):
+        pass
+
         
     @torch.no_grad()
     def transcribe(self, audio_files, lang_codes=None, tasks=None, initial_prompts=None, batch_size=8):
@@ -157,7 +164,8 @@ class WhisperModel(ABC):
 
     @torch.no_grad()
     def transcribe_with_vad(self, audio_files, lang_codes=None, tasks=None, initial_prompts=None, batch_size=8):
-
+        # lang_codes are no longer used
+        # languages are auto detected
         lang_codes = fix_batch_param(lang_codes, 'en', len(audio_files))
         tasks = fix_batch_param(tasks, 'transcribe', len(audio_files))
         initial_prompts = fix_batch_param(initial_prompts, None, len(audio_files))

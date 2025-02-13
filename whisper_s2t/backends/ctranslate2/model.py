@@ -215,6 +215,10 @@ class WhisperModelCT2(WhisperModel):
 
         return word_timings
     
+    def detect_language(self, features):
+        encoder_output = self.encode(features)
+        return self.model.detect_language(encoder_output)
+    
     def generate_segment_batched(self, features, prompts, seq_lens, seg_metadata):
         
         if self.device == 'cpu':
