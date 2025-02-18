@@ -145,7 +145,7 @@ class WhisperDataLoader:
     def get_top_lang(self, results):
         # Parse language names to strip out markers
         all_language_probs = [(token[2:-2], prob) for (token, prob) in results]
-        # Get top language token
+        # Get top language token and probability
         language, language_probability = all_language_probs[0]
         return language
         
